@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 from tkcalendar import DateEntry
+import json
+import os
 
 class TodoApp:
     def __init__(self, root):
@@ -16,6 +18,7 @@ class TodoApp:
         self.editing_index = None
         
         self.setup_ui()
+        self.load_from_backup()  # Automatically load tasks from AppData on startup
     
     def setup_ui(self):
         # Main frame
@@ -120,7 +123,7 @@ class TodoApp:
         title = self.task_entry.get().strip()
         priority = self.priority_combobox.get()
         
-        # FIXED: Extracting date object out as a formatted string correctly
+        # Extracting date object out as a formatted string correctly
         deadline = self.deadline_picker.get_date().strftime('%Y-%m-%d')
         desc = self.desc_entry.get().strip()
         
@@ -152,7 +155,8 @@ class TodoApp:
         
         self.refresh_treeview()
         self.clear_inputs()
-        
+        self.save_to_backup()
+
     def start_edit(self):
         selection = self.task_tree.selection()
         if not selection:
@@ -202,6 +206,7 @@ class TodoApp:
         children = self.task_tree.get_children()
         if children:
             self.task_tree.selection_set(children[index])
+        self.save_to_backup()
     
     def delete_task(self):
         selection = self.task_tree.selection()
@@ -214,6 +219,7 @@ class TodoApp:
             self.todos.pop(index)
             self.clear_inputs()
             self.refresh_treeview()
+            self.save_to_backup()
     
     def clear_completed(self):
         completed_count = sum(1 for todo in self.todos if todo['completed'])
@@ -225,6 +231,7 @@ class TodoApp:
             self.todos = [todo for todo in self.todos if not todo['completed']]
             self.clear_inputs()
             self.refresh_treeview()
+            self.save_to_backup()
     
     def refresh_treeview(self):
         for item in self.task_tree.get_children():
@@ -251,6 +258,51 @@ class TodoApp:
         
         status_text = f" {total} task(s) total — {remaining} remaining, {completed} completed"
         self.status_label.config(text=status_text)
+
+    # --- SYSTEM APPDATA BACKUP & LOADING FUNCTIONALITIES ---
+    
+    def save_to_backup(self):
+        """Saves the current todo list into the Windows AppData local directory."""
+        # This points safely to C:\Users\<Username>\AppData\Roaming\AdvancedTodoList
+        appdata_dir = os.path.join(os.environ['APPDATA'], "AdvancedTodoList")
+        
+        # Build directory silently if it doesn't exist
+        if not os.path.exists(appdata_dir):
+            os.makedirs(appdata_dir)
+            
+        file_path = os.path.join(appdata_dir, "todo_backup.json")
+        
+        try:
+            def datetime_serializer(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                raise TypeError("Type not serializable")
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.todos, f, default=datetime_serializer, indent=4)
+                
+        except Exception as e:
+            print(f"Error saving backup file: {e}")
+
+    def load_from_backup(self):
+        """Loads tasks from the Windows AppData directory if it exists."""
+        appdata_dir = os.path.join(os.environ['APPDATA'], "AdvancedTodoList")
+        file_path = os.path.join(appdata_dir, "todo_backup.json")
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    loaded_todos = json.load(f)
+                    
+                    # Convert string representations back into Python datetime items
+                    for todo in loaded_todos:
+                        if 'created' in todo and todo['created']:
+                            todo['created'] = datetime.fromisoformat(todo['created'])
+                            
+                    self.todos = loaded_todos
+                    self.refresh_treeview()
+            except Exception as e:
+                print(f"Error loading backup file: {e}")
 
 def main():
     root = tk.Tk()
