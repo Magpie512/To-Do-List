@@ -16,10 +16,46 @@ class TodoApp:
         # Store todos as list of dicts
         self.todos = []
         self.editing_index = None
+        self.sort_reverse = False
+        self.sort_col = None
         
+        self.apply_theme()
         self.setup_ui()
         self.load_from_backup()  # Automatically load tasks from AppData on startup
     
+    def apply_theme(self):
+        style = ttk.Style()
+        # Use clam theme as base for better cross-platform appearance
+        if 'clam' in style.theme_names():
+            style.theme_use('clam')
+            
+        # Comfy colors and fonts
+        bg_color = "#f4f6f9"
+        text_color = "#2c3e50"
+        font_main = ("Segoe UI", 10)
+        font_heading = ("Segoe UI", 10, "bold")
+        
+        self.root.configure(bg=bg_color)
+        
+        style.configure("TFrame", background=bg_color)
+        style.configure("TLabelframe", background=bg_color)
+        style.configure("TLabelframe.Label", background=bg_color, font=font_heading, foreground=text_color)
+        style.configure("TLabel", background=bg_color, font=font_main, foreground=text_color)
+        style.configure("TButton", font=font_main, padding=4)
+        style.configure("TEntry", font=font_main)
+        style.configure("TCombobox", font=font_main)
+        
+        style.configure("Treeview", 
+                        font=font_main, 
+                        rowheight=28, 
+                        background="#ffffff",
+                        fieldbackground="#ffffff",
+                        foreground=text_color)
+        style.configure("Treeview.Heading", font=font_heading, padding=4)
+        
+        # Selected row colors
+        style.map('Treeview', background=[('selected', '#3498db')])
+
     def setup_ui(self):
         # Main frame
         main_frame = ttk.Frame(self.root, padding="15")
@@ -52,10 +88,12 @@ class TodoApp:
         self.deadline_picker = DateEntry(
             self.input_frame, 
             width=12, 
-            background='darkblue',
+            background='#3498db',
             foreground='white', 
-            borderwidth=2, 
-            date_pattern='yyyy-mm-dd'
+            borderwidth=1, 
+            date_pattern='yyyy-mm-dd',
+            font=("Segoe UI", 10),
+            showweeknumbers=False
         )
         self.deadline_picker.grid(row=1, column=1, sticky=tk.W, pady=3, padx=5)
         
@@ -78,10 +116,10 @@ class TodoApp:
         self.task_tree = ttk.Treeview(tree_frame, columns=columns, show='headings', selectmode='browse')
         
         # Define Headings
-        self.task_tree.heading('status', text='Status')
-        self.task_tree.heading('title', text='Task Title')
-        self.task_tree.heading('importance', text='Importance')
-        self.task_tree.heading('deadline', text='Deadline')
+        self.task_tree.heading('status', text='Status ↕', command=lambda: self.sort_by('status'))
+        self.task_tree.heading('title', text='Task Title ↕', command=lambda: self.sort_by('title'))
+        self.task_tree.heading('importance', text='Importance ↕', command=lambda: self.sort_by('importance'))
+        self.task_tree.heading('deadline', text='Deadline ↕', command=lambda: self.sort_by('deadline'))
         self.task_tree.heading('description', text='Description')
         
         # Define Column Widths
@@ -99,10 +137,12 @@ class TodoApp:
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
         # Event Bindings
-        self.task_tree.bind('<Double-Button-1>', lambda e: self.toggle_complete())
+        self.task_tree.bind('<Double-Button-1>', self.on_double_click)
         
         # Configure row colors for tags
-        self.task_tree.tag_configure('completed', foreground='gray')
+        self.task_tree.tag_configure('evenrow', background='#f8f9fa')
+        self.task_tree.tag_configure('oddrow', background='#ffffff')
+        self.task_tree.tag_configure('completed', foreground='#a0a0a0', background='#e9ecef')
         
         # --- BUTTON CONTROL PANEL ---
         btn_frame = ttk.Frame(main_frame)
@@ -233,11 +273,38 @@ class TodoApp:
             self.refresh_treeview()
             self.save_to_backup()
     
+    def on_double_click(self, event):
+        row_id = self.task_tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.toggle_complete()
+
+    def sort_by(self, col):
+        self.clear_inputs() # Clear any active edits before sorting
+        if self.sort_col == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_reverse = False
+            self.sort_col = col
+
+        if col == "importance":
+            priority_map = {"Low": 1, "Medium": 2, "High": 3}
+            self.todos.sort(key=lambda x: priority_map.get(x['importance'], 0), reverse=self.sort_reverse)
+        elif col == "deadline":
+            self.todos.sort(key=lambda x: x['deadline'], reverse=self.sort_reverse)
+        elif col == "title":
+            self.todos.sort(key=lambda x: x['text'].lower(), reverse=self.sort_reverse)
+        elif col == "status":
+            self.todos.sort(key=lambda x: x['completed'], reverse=self.sort_reverse)
+            
+        self.refresh_treeview()
+        self.save_to_backup()
+
     def refresh_treeview(self):
         for item in self.task_tree.get_children():
             self.task_tree.delete(item)
         
-        for todo in self.todos:
+        for i, todo in enumerate(self.todos):
             status_symbol = "✓ Done" if todo['completed'] else "⟳ Pending"
             row_values = (
                 status_symbol,
@@ -247,10 +314,8 @@ class TodoApp:
                 todo['description']
             )
             
-            if todo['completed']:
-                self.task_tree.insert('', tk.END, values=row_values, tags=('completed',))
-            else:
-                self.task_tree.insert('', tk.END, values=row_values)
+            tags = ('completed',) if todo['completed'] else ('evenrow' if i % 2 == 0 else 'oddrow',)
+            self.task_tree.insert('', tk.END, values=row_values, tags=tags)
         
         total = len(self.todos)
         completed = sum(1 for todo in self.todos if todo['completed'])
