@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from tkcalendar import DateEntry
 import json
@@ -154,6 +154,9 @@ class TodoApp:
         ttk.Button(btn_frame, text="Clear Completed", command=self.clear_completed).pack(side=tk.LEFT, padx=3)
         self.cancel_edit_btn = ttk.Button(btn_frame, text="Cancel Edit", command=self.clear_inputs, state=tk.DISABLED)
         self.cancel_edit_btn.pack(side=tk.RIGHT, padx=3)
+        
+        ttk.Button(btn_frame, text="Import", command=self.import_tasks).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(btn_frame, text="Export", command=self.export_tasks).pack(side=tk.RIGHT, padx=3)
         
         # --- STATUS BAR ---
         self.status_label = ttk.Label(main_frame, text="0 tasks", relief=tk.SUNKEN, anchor=tk.W, padding="3")
@@ -323,6 +326,67 @@ class TodoApp:
         
         status_text = f" {total} task(s) total — {remaining} remaining, {completed} completed"
         self.status_label.config(text=status_text)
+
+    def export_tasks(self):
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Export Tasks"
+        )
+        if not file_path:
+            return
+            
+        try:
+            def datetime_serializer(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                raise TypeError("Type not serializable")
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(self.todos, f, default=datetime_serializer, indent=4)
+            messagebox.showinfo("Export Successful", f"Successfully exported tasks to {os.path.basename(file_path)}")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"An error occurred while exporting:\n{e}")
+
+    def import_tasks(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Import Tasks"
+        )
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                imported_todos = json.load(f)
+                
+                # Verify structure and convert dates
+                for todo in imported_todos:
+                    if 'created' in todo and todo['created']:
+                        todo['created'] = datetime.fromisoformat(todo['created'])
+                
+                if self.todos:
+                    response = messagebox.askyesnocancel(
+                        "Import Tasks",
+                        "Do you want to overwrite your existing tasks?\n\n"
+                        "Yes: Overwrite all current tasks\n"
+                        "No: Append imported tasks to current list\n"
+                        "Cancel: Abort import"
+                    )
+                    if response is None: # Cancel
+                        return
+                    elif response: # Yes (Overwrite)
+                        self.todos = imported_todos
+                    else: # No (Append)
+                        self.todos.extend(imported_todos)
+                else:
+                    self.todos = imported_todos
+                
+                self.refresh_treeview()
+                self.save_to_backup()
+                messagebox.showinfo("Import Successful", f"Successfully imported tasks from {os.path.basename(file_path)}")
+        except Exception as e:
+            messagebox.showerror("Import Error", f"An error occurred while importing:\n{e}")
 
     # --- SYSTEM APPDATA BACKUP & LOADING FUNCTIONALITIES ---
     
